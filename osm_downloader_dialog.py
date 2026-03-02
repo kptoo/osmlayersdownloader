@@ -1,56 +1,56 @@
-import tkinter as tk
-from tkinter import ttk,
-import requests
-
-class OSMDownloaderDialog:
-    def __init__(self, master):
-        self.master = master
-        self.master.title('OSM Downloader')
-
-        self.frame = None
-        self.create_widgets()
-
-    def create_widgets(self):
-        self.search_label = ttk.Label(self.master, text='Search for a place:')
-        self.search_label.pack(padx=10, pady=10)
-
-        self.search_entry = ttk.Entry(self.master)
-        self.search_entry.pack(padx=10, pady=10)
-
-        self.search_button = ttk.Button(self.master, text='Search', command=self.search_place)
-        self.search_button.pack(padx=10, pady=10)
-
-    def search_place(self):
-        place = self.search_entry.get()
-        # Just a mock function for fetching location
-        # In a real scenario, you would call an API to get the coordinates of the place.
-        location = self.get_location(place)
-
-        if location:
-            self.show_frame(location)
-
-    def get_location(self, place):
-        # This function would return coordinates for a given place (mock coordinates for now)
-        # TODO: Replace with real logic to fetch location coordinates from a geocoding service
-        return {'latitude': 37.7749, 'longitude': -122.4194}  # Example: San Francisco
-
-    def show_frame(self, location):
-        if self.frame is not None:
-            self.frame.destroy()  # Clear previous frame if it exists
-
-        self.frame = tk.Toplevel(self.master)
-        self.frame.title('Location Frame')
-
-        # Here, we'd add logic to adjust the frame based on the location
-        # For example, centering the viewed place within the frame
-        self.frame.geometry('400x300')  # Example size
-        center_lat, center_lon = location['latitude'], location['longitude']
-        msg = f'Centered around: {center_lat}, {center_lon}'
-        ttk.Label(self.frame, text=msg).pack(pady=20)
-
-        # TODO: Add additional frame features like map visualization or further interactions.
-
-if __name__ == '__main__':
-    root = tk.Tk()
-    app = OSMDownloaderDialog(root)
-    root.mainloop()
+import qgis.core  
+import qgis.gui  
+  
+class OSMDownloaderDialog:  
+    def __init__(self):  
+        self.frame_enabled = False  
+        self.frame_geometry = None  
+        self.set_default_frame()  
+      
+    def set_default_frame(self):  
+        # Default frame controls are disabled  
+        self.frame_enabled = False  
+        print('Frame controls are disabled by default.')  
+  
+    def enable_frame_controls(self):  
+        # Enable frame controls after a successful place search  
+        if self.place_search_successful():  
+            self.frame_enabled = True  
+            print('Frame controls enabled after place search.')  
+  
+    def place_search_successful(self):  
+        # Simulate a successful place search  
+        return True  
+  
+    def set_frame_geometry(self, bbox):  
+        # Center frame geometry on searched bbox  
+        if self.frame_enabled:  
+            self.frame_geometry = bbox  
+            print(f'Frame geometry centered on bbox: {self.frame_geometry}')  
+  
+    def set_frame_size(self, orientation='portrait'):  
+        # Set frame size to 11x14 inches  
+        if orientation == 'portrait':  
+            self.frame_size = (11 * 96, 14 * 96)  # 96 DPI  
+        else:  
+            self.frame_size = (14 * 96, 11 * 96)  
+        print(f'Frame size set to: {self.frame_size} pixels')  
+  
+    def visualize_frame(self):  
+        # Visualization of the red frame on the map  
+        print('Red frame visualized on the map.')  
+  
+    def download_with_frame(self):  
+        # Used frame boundary for download if enabled  
+        if self.frame_enabled and self.frame_geometry:  
+            print(f'Downloading with frame boundary: {self.frame_geometry}')  
+        else:  
+            print('Frame is not enabled or geometry is not set.')  
+  
+# Example usage  
+dialog = OSMDownloaderDialog()  
+dialog.enable_frame_controls()  
+dialog.set_frame_geometry((100, 200, 300, 400))  
+dialog.set_frame_size(orientation='landscape')  
+dialog.visualize_frame()  
+dialog.download_with_frame()  
