@@ -8,7 +8,7 @@ from qgis.PyQt.QtWidgets import QAction, QDockWidget
 from qgis.core import QgsProject
 import os.path
 
-from .osm_downloader_dialog import OSMDownloaderDialog
+from .osm_downloader_dialog import OSMDownloaderDock
 
 
 class OSMBulkDownloader:
@@ -94,7 +94,7 @@ class OSMBulkDownloader:
         
         # Create the dockwidget if it doesn't exist
         if self.dockwidget is None:
-            self.dockwidget = OSMDownloaderDialog(self.iface)
+            self.dockwidget = OSMDownloaderDock(self.iface)
             self.iface.addDockWidget(Qt.RightDockWidgetArea, self.dockwidget)
         
         # Show the dockwidget

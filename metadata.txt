@@ -1,18 +1,15 @@
 [general]
 name=OSM Bulk Downloader
-qgisMinimumVersion=3.0
-description=Download and import OpenStreetMap features in bulk with customizable layers
-version=1.0
-author=Your Name
-email=your@email.com
-
-about=Download various OSM features (golf courses, water bodies, roads, boundaries, etc.) for any location and import them directly into QGIS. Features include: selectable layer types, automatic styling, label generation, and SVG export.
-
-tracker=https://github.com/yourusername/osm-bulk-downloader/issues
-repository=https://github.com/yourusername/osm-bulk-downloader
-tags=osm,openstreetmap,download,import,bulk,features
-
-homepage=https://github.com/yourusername/osm-bulk-downloader
+qgisMinimumVersion=3.16
+description=ARTographer-style OSM bulk downloader for lake and golf course mapping
+version=2.0
+author=kptoo
+email=kptoo@github.com
+about=Download OSM features (golf courses, water bodies, roads, boundaries, etc.) for any location. Features: dark-themed panel, checkbox selection, bulk download, auto-styling, SVG export, label controls.
+tracker=https://github.com/kptoo/osmlayersdownloader/issues
+repository=https://github.com/kptoo/osmlayersdownloader
+tags=osm,openstreetmap,download,import,bulk,golf,lakes,mapping
+homepage=https://github.com/kptoo/osmlayersdownloader
 category=Web
 icon=icon.png
 experimental=False

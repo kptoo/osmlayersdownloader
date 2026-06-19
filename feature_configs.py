@@ -252,5 +252,68 @@ def get_all_features():
             ],
             'style': {'color': '#696969', 'weight': 3, 'opacity': 1.0},
             'create_labels': False  # No labels
+        },
+        {
+            'id': 22,
+            'name': 'beaches',
+            'display': 'Beaches',
+            'filters': [
+                'way["natural"="beach"]',
+                'relation["natural"="beach"]'
+            ],
+            'style': {'color': '#C2A000', 'weight': 1, 'fillColor': '#FFE070', 'fillOpacity': 0.5},
+            'create_labels': True
+        },
+        {
+            'id': 23,
+            'name': 'islands',
+            'display': 'Islands',
+            'filters': [
+                'way["place"="island"]',
+                'relation["place"="island"]'
+            ],
+            'style': {'color': '#228B22', 'weight': 1, 'fillColor': '#90EE90', 'fillOpacity': 0.4},
+            'create_labels': True
+        },
+        {
+            'id': 24,
+            'name': 'residential_areas',
+            'display': 'Residential Areas',
+            'filters': [
+                'way["landuse"="residential"]',
+                'relation["landuse"="residential"]'
+            ],
+            'style': {'color': '#CCAA88', 'weight': 1, 'fillColor': '#EED8B8', 'fillOpacity': 0.4},
+            'create_labels': False
+        },
+        {
+            'id': 25,
+            'name': 'admin_boundaries_state',
+            'display': 'State Boundaries',
+            'filters': [
+                'relation["boundary"="administrative"]["admin_level"="4"]'
+            ],
+            'style': {'color': '#9900CC', 'weight': 2, 'opacity': 0.8},
+            'create_labels': False
+        },
+        {
+            'id': 26,
+            'name': 'admin_boundaries_country',
+            'display': 'Country Boundaries',
+            'filters': [
+                'relation["boundary"="administrative"]["admin_level"="2"]'
+            ],
+            'style': {'color': '#CC0000', 'weight': 2, 'opacity': 0.9},
+            'create_labels': False
+        },
+        {
+            'id': 27,
+            'name': 'places',
+            'display': 'Places',
+            'filters': [
+                'node["place"~"city|town|village|hamlet|locality"]'
+            ],
+            'style': {'color': '#FF4400', 'weight': 1},
+            'create_labels': True
         }
     ]

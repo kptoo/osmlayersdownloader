@@ -1,131 +1,101 @@
-# OSM Bulk Downloader - QGIS Plugin
+# OSM Bulk Downloader — QGIS Plugin
 
-Download and import OpenStreetMap features in bulk directly into QGIS.
+An ARTographer-style dark-themed QGIS plugin for bulk-downloading OpenStreetMap data for lake and golf course mapping.
+
+---
 
 ## Features
 
-- **Download various OSM features**: Golf courses, water bodies, rivers, beaches, roads, boundaries, and more
-- **Dockable interface**: Integrates seamlessly with QGIS layer panel
-- **Automatic styling**: Each feature type comes with predefined colors and styles
-- **Label generation**: Automatically creates labels for named features
-- **Quick selection**: Preset buttons for common feature groups (Water, Roads, Boundaries)
-- **Multi-threaded**: Downloads happen in background without blocking QGIS
+- **Dark-themed dockable panel** — right-side dock with a professional dark UI
+- **Location search** — type any place name and press 🔍 to search via Nominatim; or use 🌐 to use the current map extent
+- **Padding control** — add a percentage buffer around the search area
+- **27 feature types** (checkbox selection with colour indicators):
+  - Water Bodies & Lakes, Rivers, Streams, Bays, Coastlines
+  - Golf Courses, Parks/Reserves, Protected Areas
+  - Major Roads, Residential Roads, Local Roads, Paths/Trails, Railways
+  - Buildings, Mountain Peaks, Cities, Places
+  - Beaches, Islands, Residential Areas, State/Country Boundaries
+  - Airports, Runways, Ski Resorts, Ski Runs, Ski Lifts
+- **One-click bulk download** ("Generate Map") — downloads all checked layers in a background thread
+- **Progress bar + activity log** — real-time feedback in the Activity tab
+- **Per-feature auto-styling** — each layer gets its own colour/line-width/fill
+- **Label toggle** — enable/disable labels globally across all layers
+- **Tool buttons**:
+  - *City Roads* — download all road types at once
+  - *Grab 1 Layer* — download only the single checked layer
+  - *Gray Roads* — set all road layers to gray
+  - *Tiny Polys* — remove tiny polygon artefacts from water/golf layers
+  - *Lets Golf* — download golf courses for the current extent
+  - *Smooth Lake / Smooth River* — dissolve/merge water features
+  - *Set Frame* — draw an 11×14 inch red frame on the canvas
+  - *Clear Map* — remove all OSM Download layers
+  - *Abort* — cancel a running download
+- **SVG export** — export all layers to a single SVG file (A4/A3/Letter/Tabloid)
+- **QGIS layer group** — all layers are added under an "OSM Downloads" group
+
+---
 
 ## Installation
 
-### Method 1: Manual Installation
+### From ZIP (recommended)
 
-1. Download or clone this repository
-2. Copy the `osm_bulk_downloader` folder to your QGIS plugins directory:
-   - **Windows**: `C:\Users\{username}\AppData\Roaming\QGIS\QGIS3\profiles\default\python\plugins\`
-   - **Mac**: `~/Library/Application Support/QGIS/QGIS3/profiles/default/python/plugins/`
-   - **Linux**: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
+1. Download or clone this repository.
+2. In QGIS: **Plugins → Manage and Install Plugins → Install from ZIP**.
+3. Select the downloaded ZIP and click **Install Plugin**.
+4. Enable the plugin under **Installed** plugins.
 
-3. Restart QGIS
-4. Enable the plugin:
-   - Go to `Plugins > Manage and Install Plugins`
-   - Find "OSM Bulk Downloader" in the list
-   - Check the box to enable it
+### Manual
 
-### Method 2: From ZIP
+1. Copy the `osmlayersdownloader/` folder to your QGIS plugins directory:
+   - **Windows**: `%APPDATA%\QGIS\QGIS3\profiles\default\python\plugins\`
+   - **macOS/Linux**: `~/.local/share/QGIS/QGIS3/profiles/default/python/plugins/`
+2. Restart QGIS and enable the plugin in **Plugins → Manage and Install Plugins**.
 
-1. Create a ZIP file of the `osm_bulk_downloader` folder
-2. In QGIS: `Plugins > Manage and Install Plugins > Install from ZIP`
-3. Select the ZIP file and click "Install Plugin"
-
-## Usage
-
-1. **Open the plugin**: 
-   - Click the plugin icon in the toolbar, or
-   - Go to `Web > OSM Bulk Downloader`
-   
-2. **Search for a location**:
-   - Enter a place name (e.g., "Stow, Ohio", "Manhattan, New York", "Paris, France")
-   - Click "Search"
-   - The plugin will find the location and show its bounding box
-
-3. **Select features**:
-   - Use the quick select buttons (All, Water, Roads, Boundaries, None), or
-   - Manually select individual features from the list
-
-4. **Download**:
-   - Click "Download & Add to QGIS"
-   - Watch the progress in the log window
-   - Layers will be automatically added to your QGIS project with styling
-
-## Available Features
-
-### Water Features
-- Water Bodies & Lakes
-- Rivers & Streams
-- Bays
-- Beaches
-
-### Infrastructure
-- Roads (Residential, Local, Major)
-- Trails & Paths
-
-### Land Use
-- Golf Courses
-- Residential Areas
-- Islands
-
-### Administrative Boundaries
-- City Boundaries
-- State/Province Boundaries
-- Country Boundaries
-
-## Styling
-
-Each feature type has predefined styling:
-- **Roads**: Varying widths (thin=residential, medium=local, thick=major highways)
-- **Water**: Blue colors with transparency
-- **Boundaries**: Dashed lines in red/orange tones
-- **Labels**: Automatically generated for named features
-
-You can modify styles after import using QGIS's standard styling tools.
+---
 
 ## Requirements
 
-- QGIS 3.0 or higher
-- Internet connection (for accessing OpenStreetMap APIs)
-- Python packages: `requests` (usually included with QGIS)
+- QGIS 3.16+
+- Python `requests` library (install via OSGeo4W Shell or system Python):
+  ```
+  pip install requests
+  ```
 
-## Tips
+---
 
-- **Large areas**: For very large regions, be selective with features (especially roads) to avoid long download times
-- **API limits**: The plugin includes automatic delays between requests to respect OSM API limits
-- **Re-download**: You can search for the same location multiple times and add different feature sets
-- **Layer management**: Layers are added as temporary GeoJSON layers. Save them if you want to keep them permanently
+## Usage
 
-## Troubleshooting
+1. Open the panel: **Web → OSM Bulk Downloader → OSM Bulk Downloader**
+2. Type a place name (e.g. "Turkeyfoot Lake") and click 🔍 **or** navigate the QGIS map canvas to your area and click 🌐
+3. Tick the feature types you want in the **Options** section
+4. (Optional) Adjust the padding percentage
+5. Click **Generate Map** — layers will appear in QGIS as they download
+6. Use **Export** (Export tab) to save an SVG
 
-**Plugin doesn't appear in menu**:
-- Make sure it's enabled in Plugin Manager
-- Check the QGIS Python console for error messages
+---
 
-**"Place not found"**:
-- Try different search terms (add country/state)
-- Use more specific location names
+## File Structure
 
-**No features downloaded**:
-- The location might not have those features in OpenStreetMap
-- Try a different area or different feature types
+```
+osmlayersdownloader/
+├── __init__.py              — QGIS plugin entry point
+├── metadata.txt             — Plugin metadata
+├── icon.png                 — Toolbar icon
+├── osm_bulk_downloader.py   — Main plugin class (toolbar/menu)
+├── osm_downloader_dialog.py — OSMDownloaderDock (main dark panel)
+├── worker.py                — QThread download worker
+├── layer_manager.py         — Layer loading, styling, grouping
+├── osm_api.py               — Overpass + Nominatim API handler
+├── feature_configs.py       — All 27 feature type configs
+├── frame_builder.py         — 11×14 inch frame geometry builder
+├── style_editor_dialog.py   — Advanced layer style editor dialog
+├── svg_exporter.py          — SVG export engine
+└── README.md
+```
 
-**Download is slow**:
-- This is normal for large areas or many features
-- The plugin respects API rate limits with 2-second delays
+---
 
 ## Credits
 
-- OpenStreetMap contributors for the data
-- Overpass API for data retrieval
-- Nominatim for geocoding
-
-## License
-
-This plugin is released under the GNU General Public License v3.0
-
-## Support
-
-For issues, feature requests, or contributions, please visit the GitHub repository.
+Built on top of the OpenStreetMap Overpass API and Nominatim geocoding service.
+Inspired by the ARTographer mapping workflow for lake and golf course cartography.
