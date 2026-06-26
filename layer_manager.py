@@ -23,11 +23,40 @@ from qgis.core import (
     QgsMessageLog,
     QgsWkbTypes,
     Qgis,
+    QgsStyle,
 )
 from qgis.PyQt.QtGui import QColor
 from qgis.PyQt.QtCore import QSizeF
 
 GROUP_NAME = "OSM Downloads"
+
+# ---------------------------------------------------------------------------
+# QGIS built-in style names used as defaults for specific feature categories
+# ---------------------------------------------------------------------------
+TOPO_WATER_STYLE    = "topo water"       # for water bodies, lakes, bays
+TOPO_ROAD_STYLE     = "topo road"        # for all road types and paths/trails
+TOPO_HYDRO_STYLE    = "topo hydrology"   # for rivers and streams/canals
+
+# Feature-name keywords that map to each topo style
+_WATER_KEYWORDS  = ('water_bodies', 'bays', 'lakes')
+_ROAD_KEYWORDS   = ('roads_major', 'roads_residential', 'roads_local',
+                    'paths_trails', 'ski_runs', 'ski_lifts', 'runways')
+_HYDRO_KEYWORDS  = ('rivers', 'streams')
+
+
+def _feature_topo_style(feature_name: str):
+    """
+    Return the QGIS built-in style name for a given feature config name,
+    or None if no topo style applies.
+    """
+    n = feature_name.lower()
+    if any(k in n for k in _WATER_KEYWORDS):
+        return TOPO_WATER_STYLE
+    if any(k in n for k in _ROAD_KEYWORDS):
+        return TOPO_ROAD_STYLE
+    if any(k in n for k in _HYDRO_KEYWORDS):
+        return TOPO_HYDRO_STYLE
+    return None
 
 
 class LayerManager:
@@ -108,7 +137,7 @@ class LayerManager:
                         break
                     except (OSError, PermissionError):
                         if attempt < 4:
-                            time.sleep(0.2)  # Wait 200ms and retry
+                            time.sleep(0.2)
                         else:
                             pass  # Give up silently — OS will clean it up
 
@@ -117,8 +146,27 @@ class LayerManager:
     # ------------------------------------------------------------------
 
     def apply_style(self, layer, style_config):
-        """Apply fill/stroke/line styling from a feature config dict."""
-        style = style_config.get("style", {})
+        """
+        Apply styling to a layer.
+
+        Priority:
+          1. Try to apply the QGIS built-in topo style that matches the
+             feature category (topo water / topo road / topo hydrology).
+          2. Fall back to the colour/weight values in style_config if the
+             built-in style is not found or cannot be applied.
+        """
+        feature_name = style_config.get("name", "")
+        topo_style   = _feature_topo_style(feature_name)
+
+        if topo_style and self._apply_builtin_style(layer, topo_style):
+            QgsMessageLog.logMessage(
+                f"Applied built-in style '{topo_style}' to '{layer.name()}'",
+                "OSM Bulk Downloader", Qgis.Info,
+            )
+            return
+
+        # --- Fallback: manual colour/weight styling ---
+        style    = style_config.get("style", {})
         if not style:
             return
 
@@ -137,6 +185,66 @@ class LayerManager:
                 "OSM Bulk Downloader", Qgis.Warning,
             )
 
+    def _apply_builtin_style(self, layer, style_name: str) -> bool:
+        """
+        Look up a symbol by name in the QGIS default style library and apply
+        it to the layer.  Returns True on success, False if not found.
+
+        The QGIS built-in styles (topo water, topo road, topo hydrology) are
+        stored as named symbols in QgsStyle.defaultStyle().  This method
+        searches fill symbols (for polygons), line symbols (for lines), and
+        marker symbols (for points) in that order.
+        """
+        try:
+            default_style = QgsStyle.defaultStyle()
+            geom_type     = layer.geometryType()
+
+            if geom_type == QgsWkbTypes.PolygonGeometry:
+                symbol = default_style.symbol(style_name)           # fill symbol
+                if symbol is None:
+                    # Some QGIS versions store them case-sensitively
+                    for name in default_style.symbolNames():
+                        if name.lower() == style_name.lower():
+                            symbol = default_style.symbol(name)
+                            break
+                if symbol:
+                    layer.setRenderer(QgsSingleSymbolRenderer(symbol.clone()))
+                    layer.triggerRepaint()
+                    return True
+
+            elif geom_type == QgsWkbTypes.LineGeometry:
+                symbol = default_style.symbol(style_name)
+                if symbol is None:
+                    for name in default_style.symbolNames():
+                        if name.lower() == style_name.lower():
+                            symbol = default_style.symbol(name)
+                            break
+                if symbol:
+                    layer.setRenderer(QgsSingleSymbolRenderer(symbol.clone()))
+                    layer.triggerRepaint()
+                    return True
+
+            elif geom_type == QgsWkbTypes.PointGeometry:
+                symbol = default_style.symbol(style_name)
+                if symbol is None:
+                    for name in default_style.symbolNames():
+                        if name.lower() == style_name.lower():
+                            symbol = default_style.symbol(name)
+                            break
+                if symbol:
+                    layer.setRenderer(QgsSingleSymbolRenderer(symbol.clone()))
+                    layer.triggerRepaint()
+                    return True
+
+        except Exception as exc:
+            QgsMessageLog.logMessage(
+                f"Could not apply built-in style '{style_name}' to "
+                f"'{layer.name()}': {exc}",
+                "OSM Bulk Downloader", Qgis.Warning,
+            )
+
+        return False
+
     def _style_point(self, layer, style):
         color_str = style.get("color", "#FF0000")
         symbol = QgsMarkerSymbol.createSimple(
@@ -147,7 +255,7 @@ class LayerManager:
 
     def _style_line(self, layer, style):
         color_str = style.get("color", "#000000")
-        weight = style.get("weight", 1)
+        weight    = style.get("weight", 1)
         symbol = QgsLineSymbol.createSimple(
             {"color": color_str, "width": str(weight), "capstyle": "round"}
         )
@@ -155,17 +263,17 @@ class LayerManager:
         layer.setRenderer(QgsSingleSymbolRenderer(symbol))
 
     def _style_polygon(self, layer, style):
-        stroke_color = style.get("color", "#000000")
-        fill_color = style.get("fillColor", "#CCCCCC")
-        weight = style.get("weight", 0.5)
-        fill_opacity = style.get("fillOpacity", 0.5)
-        fill_qcolor = QColor(fill_color)
+        stroke_color  = style.get("color", "#000000")
+        fill_color    = style.get("fillColor", "#CCCCCC")
+        weight        = style.get("weight", 0.5)
+        fill_opacity  = style.get("fillOpacity", 0.5)
+        fill_qcolor   = QColor(fill_color)
         fill_qcolor.setAlphaF(fill_opacity)
         symbol = QgsFillSymbol.createSimple({
-            "color": fill_qcolor.name(QColor.HexArgb),
+            "color":         fill_qcolor.name(QColor.HexArgb),
             "outline_color": stroke_color,
             "outline_width": str(weight),
-            "style": "solid",
+            "style":         "solid",
             "outline_style": "solid",
         })
         symbol.setOpacity(style.get("opacity", 1.0))
