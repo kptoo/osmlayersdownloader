@@ -26,8 +26,25 @@ class OSMAPIHandler:
 
     def search_place(self, place_name: str) -> Optional[Tuple[float, float, float, float]]:
         """
-        Search for a place using Nominatim and get its bounding box.
+        Search for a place using Nominatim and return its bounding box.
         Returns: (south, west, north, east) or None
+        Use search_place_full() to also get the boundary polygon.
+        """
+        result = self.search_place_full(place_name)
+        if result:
+            return result['bbox']
+        return None
+
+    def search_place_full(self, place_name: str) -> Optional[Dict]:
+        """
+        Search for a place using Nominatim.
+
+        Returns a dict with:
+          'bbox'     : (south, west, north, east)
+          'display'  : display name string
+          'geojson'  : GeoJSON geometry dict of the place boundary (or None)
+
+        Returns None if the place is not found.
         """
         self.log(f"Searching for '{place_name}'...")
 
@@ -35,12 +52,9 @@ class OSMAPIHandler:
             'q': place_name,
             'format': 'json',
             'limit': 1,
-            'polygon_geojson': 1
+            'polygon_geojson': 1,   # ask Nominatim to return the boundary shape
         }
-
-        headers = {
-            'User-Agent': 'QGIS OSM Bulk Downloader Plugin/2.0'
-        }
+        headers = {'User-Agent': 'QGIS OSM Bulk Downloader Plugin/2.0'}
 
         try:
             response = requests.get(
@@ -56,17 +70,23 @@ class OSMAPIHandler:
                 self.log(f"No results found for '{place_name}'", Qgis.Warning)
                 return None
 
-            result = results[0]
-            bbox = result.get('boundingbox')
+            result   = results[0]
+            bbox_raw = result.get('boundingbox')
+            geojson  = result.get('geojson')          # boundary polygon / multipolygon
 
-            if bbox:
-                # Nominatim returns [south, north, west, east]
-                south, north, west, east = map(float, bbox)
-                self.log(f"Found: {result['display_name']}")
-                return (south, west, north, east)
-            else:
+            if not bbox_raw:
                 self.log("No bounding box found for this location", Qgis.Warning)
                 return None
+
+            # Nominatim returns [south, north, west, east]
+            south, north, west, east = map(float, bbox_raw)
+            self.log(f"Found: {result['display_name']}")
+
+            return {
+                'bbox'   : (south, west, north, east),
+                'display': result['display_name'],
+                'geojson': geojson,   # may be None for simple node results
+            }
 
         except Exception as e:
             self.log(f"Error searching for place: {e}", Qgis.Critical)
@@ -94,22 +114,13 @@ class OSMAPIHandler:
                 self.log(f"✓ Got response from {server_url}")
                 return data
             except requests.exceptions.Timeout:
-                self.log(
-                    f"Timeout on {server_url} — trying next...",
-                    Qgis.Warning
-                )
+                self.log(f"Timeout on {server_url} — trying next...", Qgis.Warning)
                 continue
             except requests.exceptions.ConnectionError as e:
-                self.log(
-                    f"Connection error on {server_url}: {e} — trying next...",
-                    Qgis.Warning
-                )
+                self.log(f"Connection error on {server_url}: {e} — trying next...", Qgis.Warning)
                 continue
             except Exception as e:
-                self.log(
-                    f"Server {server_url} failed: {e} — trying next...",
-                    Qgis.Warning
-                )
+                self.log(f"Server {server_url} failed: {e} — trying next...", Qgis.Warning)
                 continue
 
         self.log("All Overpass servers failed.", Qgis.Critical)
@@ -140,7 +151,7 @@ out geom;
         self.log(f"Downloading {feature_name}...")
 
         query = self.build_query(bbox, feature_config['filters'])
-        data = self.query_overpass(query)
+        data  = self.query_overpass(query)
 
         if data is None:
             self.log(f"Failed to download {feature_name}", Qgis.Warning)
@@ -228,37 +239,27 @@ out geom;
                 coords[0][1] == coords[-1][1]
             )
 
-            # Roads and trails are always lines
             is_road = any(x in feature_name for x in
                           ['roads', 'trails', 'paths', 'railways',
                            'streams', 'rivers', 'coastlines'])
 
             if is_road:
-                geometry = {
-                    'type': 'LineString',
-                    'coordinates': coords
-                }
+                geometry = {'type': 'LineString', 'coordinates': coords}
             else:
-                tags = element.get('tags', {})
+                tags    = element.get('tags', {})
                 is_area = (is_closed and (
                     tags.get('area') == 'yes' or
                     'building' in tags or
-                    'landuse' in tags or
-                    'natural' in tags or
-                    'leisure' in tags or
-                    'amenity' in tags or
+                    'landuse'  in tags or
+                    'natural'  in tags or
+                    'leisure'  in tags or
+                    'amenity'  in tags or
                     'boundary' in tags
                 ))
                 if is_area:
-                    geometry = {
-                        'type': 'Polygon',
-                        'coordinates': [coords]
-                    }
+                    geometry = {'type': 'Polygon', 'coordinates': [coords]}
                 else:
-                    geometry = {
-                        'type': 'LineString',
-                        'coordinates': coords
-                    }
+                    geometry = {'type': 'LineString', 'coordinates': coords}
 
             return {
                 'type': 'Feature',
@@ -274,8 +275,8 @@ out geom;
             if tags.get('type') not in ['multipolygon', 'boundary']:
                 return None
 
-            outer_ways = []
-            inner_ways = []
+            outer_segments = []
+            inner_segments = []
 
             for member in element['members']:
                 if member['type'] != 'way' or 'geometry' not in member:
@@ -284,142 +285,163 @@ out geom;
                 if not coords:
                     continue
                 if member['role'] == 'outer':
-                    outer_ways.append(coords)
+                    outer_segments.append(coords)
                 elif member['role'] == 'inner':
-                    inner_ways.append(coords)
+                    inner_segments.append(coords)
                 else:
-                    outer_ways.append(coords)
+                    outer_segments.append(coords)
 
-            if not outer_ways:
+            if not outer_segments:
                 return None
 
-            # Single outer way, no holes
-            if len(outer_ways) == 1 and len(inner_ways) == 0:
-                coords = outer_ways[0]
-                if coords[0] != coords[-1]:
-                    coords.append(coords[0])
+            outer_rings = self._stitch_segments(outer_segments)
+            inner_rings = self._stitch_segments(inner_segments)
+
+            if not outer_rings:
+                return None
+
+            if len(outer_rings) == 1 and len(inner_rings) == 0:
                 return {
                     'type': 'Feature',
-                    'geometry': {
-                        'type': 'Polygon',
-                        'coordinates': [coords]
-                    },
+                    'geometry': {'type': 'Polygon', 'coordinates': [outer_rings[0]]},
                     'properties': tags
                 }
 
-            # Single outer way with holes
-            if len(outer_ways) == 1:
-                coords = outer_ways[0]
-                if coords[0] != coords[-1]:
-                    coords.append(coords[0])
-                all_coords = [coords]
-                for inner in inner_ways:
-                    if inner[0] != inner[-1]:
-                        inner.append(inner[0])
-                    all_coords.append(inner)
+            if len(outer_rings) == 1:
                 return {
                     'type': 'Feature',
-                    'geometry': {
-                        'type': 'Polygon',
-                        'coordinates': all_coords
-                    },
+                    'geometry': {'type': 'Polygon', 'coordinates': [outer_rings[0]] + inner_rings},
                     'properties': tags
                 }
 
-            # Multiple outer ways — MultiPolygon
-            polygons = []
-            for outer in outer_ways:
-                if outer[0] != outer[-1]:
-                    outer.append(outer[0])
-                polygons.append([outer])
+            polygons = [[outer] for outer in outer_rings]
+            for inner in inner_rings:
+                placed = False
+                for poly in polygons:
+                    if self._point_in_ring(inner[0], poly[0]):
+                        poly.append(inner)
+                        placed = True
+                        break
+                if not placed:
+                    polygons[0].append(inner)
 
             return {
                 'type': 'Feature',
-                'geometry': {
-                    'type': 'MultiPolygon',
-                    'coordinates': polygons
-                },
+                'geometry': {'type': 'MultiPolygon', 'coordinates': polygons},
                 'properties': tags
             }
 
         return None
 
-    def calculate_centroid(self, geometry: Dict) -> Optional[List[float]]:
-        """Calculate centroid of a geometry"""
-        geom_type = geometry.get('type')
-        coords = geometry.get('coordinates')
+    # ------------------------------------------------------------------
+    # Ring-stitching helpers
+    # ------------------------------------------------------------------
 
+    def _coords_match(self, a, b, tol=1e-8) -> bool:
+        return abs(a[0] - b[0]) < tol and abs(a[1] - b[1]) < tol
+
+    def _stitch_segments(self, segments: List[List]) -> List[List]:
+        """
+        Assemble a list of way-segment coordinate lists into one or more
+        closed rings by chaining them end-to-end.
+        """
+        if not segments:
+            return []
+
+        remaining = [list(seg) for seg in segments]
+        rings = []
+
+        while remaining:
+            chain   = remaining.pop(0)
+            changed = True
+            while changed:
+                changed = False
+                if len(chain) > 2 and self._coords_match(chain[0], chain[-1]):
+                    break
+                for i, seg in enumerate(remaining):
+                    if self._coords_match(chain[-1], seg[0]):
+                        chain.extend(seg[1:]); remaining.pop(i); changed = True; break
+                    if self._coords_match(chain[-1], seg[-1]):
+                        chain.extend(list(reversed(seg))[1:]); remaining.pop(i); changed = True; break
+                    if self._coords_match(chain[0], seg[0]):
+                        chain = list(reversed(seg)) + chain[1:]; remaining.pop(i); changed = True; break
+                    if self._coords_match(chain[0], seg[-1]):
+                        chain = seg + chain[1:]; remaining.pop(i); changed = True; break
+
+            if not self._coords_match(chain[0], chain[-1]):
+                chain.append(chain[0])
+            rings.append(chain)
+
+        return rings
+
+    def _point_in_ring(self, point, ring) -> bool:
+        """Ray-casting point-in-polygon test."""
+        px, py  = point[0], point[1]
+        inside  = False
+        n       = len(ring)
+        j       = n - 1
+        for i in range(n):
+            xi, yi = ring[i][0], ring[i][1]
+            xj, yj = ring[j][0], ring[j][1]
+            if ((yi > py) != (yj > py)) and (
+                px < (xj - xi) * (py - yi) / (yj - yi + 1e-15) + xi
+            ):
+                inside = not inside
+            j = i
+        return inside
+
+    # ------------------------------------------------------------------
+    # Centroid / label helpers
+    # ------------------------------------------------------------------
+
+    def calculate_centroid(self, geometry: Dict) -> Optional[List[float]]:
+        geom_type = geometry.get('type')
+        coords    = geometry.get('coordinates')
         if not coords:
             return None
-
         if geom_type == 'Point':
             return coords
         elif geom_type == 'LineString':
-            mid_idx = len(coords) // 2
-            return coords[mid_idx]
+            return coords[len(coords) // 2]
         elif geom_type == 'Polygon':
-            ring = coords[0]
-            x_sum = sum(pt[0] for pt in ring)
-            y_sum = sum(pt[1] for pt in ring)
-            n = len(ring)
-            return [x_sum / n, y_sum / n]
+            ring  = coords[0]
+            return [sum(p[0] for p in ring) / len(ring),
+                    sum(p[1] for p in ring) / len(ring)]
         elif geom_type == 'MultiPolygon':
             if coords and coords[0] and coords[0][0]:
                 ring = coords[0][0]
-                x_sum = sum(pt[0] for pt in ring)
-                y_sum = sum(pt[1] for pt in ring)
-                n = len(ring)
-                return [x_sum / n, y_sum / n]
-
+                return [sum(p[0] for p in ring) / len(ring),
+                        sum(p[1] for p in ring) / len(ring)]
         return None
 
     def create_labels_geojson(self, geojson: Dict) -> Dict:
-        """Create label points from features"""
         label_features = []
-
         for feature in geojson.get('features', []):
             if not feature.get('properties', {}).get('name'):
                 continue
-
-            geometry = feature.get('geometry', {})
+            geometry  = feature.get('geometry', {})
             geom_type = geometry.get('type')
-            coords = geometry.get('coordinates')
-
+            coords    = geometry.get('coordinates')
             if not coords:
                 continue
-
             label_pos = None
-
             if geom_type == 'Point':
                 label_pos = coords
             elif geom_type == 'LineString':
-                mid_idx = len(coords) // 2
-                label_pos = coords[mid_idx]
+                label_pos = coords[len(coords) // 2]
             elif geom_type == 'Polygon':
-                ring = coords[0]
-                x_sum = sum(pt[0] for pt in ring)
-                y_sum = sum(pt[1] for pt in ring)
-                n = len(ring)
-                label_pos = [x_sum / n, y_sum / n]
+                ring      = coords[0]
+                label_pos = [sum(p[0] for p in ring) / len(ring),
+                             sum(p[1] for p in ring) / len(ring)]
             elif geom_type == 'MultiPolygon':
                 if coords and coords[0] and coords[0][0]:
-                    ring = coords[0][0]
-                    x_sum = sum(pt[0] for pt in ring)
-                    y_sum = sum(pt[1] for pt in ring)
-                    n = len(ring)
-                    label_pos = [x_sum / n, y_sum / n]
-
+                    ring      = coords[0][0]
+                    label_pos = [sum(p[0] for p in ring) / len(ring),
+                                 sum(p[1] for p in ring) / len(ring)]
             if label_pos:
                 label_features.append({
                     'type': 'Feature',
-                    'geometry': {
-                        'type': 'Point',
-                        'coordinates': label_pos
-                    },
+                    'geometry': {'type': 'Point', 'coordinates': label_pos},
                     'properties': feature.get('properties', {})
                 })
-
-        return {
-            'type': 'FeatureCollection',
-            'features': label_features
-        }
+        return {'type': 'FeatureCollection', 'features': label_features}
