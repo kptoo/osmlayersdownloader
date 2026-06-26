@@ -17,7 +17,7 @@ from qgis.core import (
     QgsProject, QgsRectangle, QgsCoordinateReferenceSystem,
     QgsCoordinateTransform, QgsMessageLog, QgsVectorLayer,
     QgsFeature, QgsFillSymbol, QgsSingleSymbolRenderer,
-    QgsWkbTypes, Qgis,
+    QgsWkbTypes, Qgis, QgsGeometry, QgsPointXY,
 )
 
 from .feature_configs import get_all_features
@@ -110,13 +110,14 @@ class OSMDownloaderDock(QDockWidget):
         self.iface = iface
         self.setObjectName("OSMBulkDownloaderDock")
 
-        self._worker = None
-        self._layer_manager = LayerManager(iface)
-        self._all_features = get_all_features()
+        self._worker           = None
+        self._layer_manager    = LayerManager(iface)
+        self._all_features     = get_all_features()
         self._feature_checkboxes = {}
-        self._labels_enabled = True
-        self._current_bbox = None
-        self._base_map_on = True
+        self._labels_enabled   = True
+        self._current_bbox     = None
+        self._place_boundary   = None   # GeoJSON geometry dict from Nominatim
+        self._base_map_on      = True
 
         self._build_ui()
         self.setStyleSheet(DARK_STYLE)
@@ -140,7 +141,7 @@ class OSMDownloaderDock(QDockWidget):
     # ---- Location -------------------------------------------------------
 
     def _build_location_section(self):
-        grp = QGroupBox("Location")
+        grp    = QGroupBox("Location")
         layout = QVBoxLayout(grp)
         layout.setSpacing(3)
         row = QHBoxLayout()
@@ -164,36 +165,60 @@ class OSMDownloaderDock(QDockWidget):
     # ---- Padding --------------------------------------------------------
 
     def _build_padding_section(self):
-        grp = QGroupBox("Padding")
+        grp    = QGroupBox("Padding / Frame")
         layout = QHBoxLayout(grp)
         layout.setSpacing(6)
+
         self._padding_spin = QDoubleSpinBox()
         self._padding_spin.setRange(0, 100)
         self._padding_spin.setValue(0)
         self._padding_spin.setSuffix("%")
         self._padding_spin.setFixedWidth(70)
+        self._padding_spin.setToolTip(
+            "Expand the place boundary by this percentage before downloading.\n"
+            "0 % = exactly the place boundary,  10 % = 10 % wider on each side."
+        )
         layout.addWidget(self._padding_spin)
+
+        self._clip_to_boundary_chk = QCheckBox("Clip to place")
+        self._clip_to_boundary_chk.setChecked(True)
+        self._clip_to_boundary_chk.setToolTip(
+            "After downloading, clip every layer to the exact boundary of the\n"
+            "searched place (expanded by the padding above).\n"
+            "Uncheck to keep all features inside the bounding box instead."
+        )
+        layout.addWidget(self._clip_to_boundary_chk)
+
+        self._show_boundary_chk = QCheckBox("Show boundary")
+        self._show_boundary_chk.setChecked(True)
+        self._show_boundary_chk.setToolTip(
+            "Add the place boundary polygon as a layer so you can see the frame."
+        )
+        layout.addWidget(self._show_boundary_chk)
+
         self._manual_chk = QCheckBox("Manual")
         self._manual_chk.setChecked(False)
         layout.addWidget(self._manual_chk)
+
         self._water_chk = QCheckBox("Water")
         self._water_chk.setChecked(False)
         layout.addWidget(self._water_chk)
+
         layout.addStretch()
         return grp
 
     # ---- Feature checkboxes ---------------------------------------------
 
     def _build_options_section(self):
-        grp = QGroupBox("Options")
+        grp   = QGroupBox("Options")
         outer = QVBoxLayout(grp)
 
         toggle_row = QHBoxLayout()
-        self._base_map_chk = QCheckBox("base map")
+        self._base_map_chk   = QCheckBox("base map")
         self._base_map_chk.setChecked(True)
         self._abbreviate_chk = QCheckBox("Abbreviate")
         self._gray_roads_chk = QCheckBox("Gray roads")
-        self._labels_chk = QCheckBox("Enable labels")
+        self._labels_chk     = QCheckBox("Enable labels")
         self._labels_chk.setChecked(True)
         self._labels_chk.stateChanged.connect(self._on_labels_toggled)
         for w in (self._base_map_chk, self._abbreviate_chk,
@@ -219,24 +244,24 @@ class OSMDownloaderDock(QDockWidget):
         }
 
         for i, feat in enumerate(self._all_features):
-            grid_row = i // 2
-            col_base = (i % 2) * 3
-            style = feat.get("style", {})
+            grid_row  = i // 2
+            col_base  = (i % 2) * 3
+            style     = feat.get("style", {})
             swatch_color = style.get("fillColor") or style.get("color") or "#888888"
             swatch = _color_swatch(swatch_color)
-            chk = QCheckBox(feat["display"])
+            chk    = QCheckBox(feat["display"])
             chk.setChecked(feat["name"] in default_on)
             self._feature_checkboxes[feat["name"]] = chk
-            grid.addWidget(swatch, grid_row, col_base, Qt.AlignVCenter)
-            grid.addWidget(chk, grid_row, col_base + 1, Qt.AlignVCenter)
+            grid.addWidget(swatch, grid_row, col_base,     Qt.AlignVCenter)
+            grid.addWidget(chk,    grid_row, col_base + 1, Qt.AlignVCenter)
             if i % 2 == 0:
                 grid.addItem(QSpacerItem(8, 1), grid_row, col_base + 2)
 
         scroll.setWidget(grid_widget)
         outer.addWidget(scroll)
 
-        sel_row = QHBoxLayout()
-        all_btn = _btn("All", "#3a3a5c")
+        sel_row  = QHBoxLayout()
+        all_btn  = _btn("All",  "#3a3a5c")
         none_btn = _btn("None", "#3a3a5c")
         all_btn.clicked.connect(self._select_all_features)
         none_btn.clicked.connect(self._select_no_features)
@@ -249,7 +274,7 @@ class OSMDownloaderDock(QDockWidget):
     # ---- Tool buttons ---------------------------------------------------
 
     def _build_tools_section(self):
-        grp = QGroupBox("Tools")
+        grp  = QGroupBox("Tools")
         grid = QGridLayout(grp)
         grid.setSpacing(4)
 
@@ -272,7 +297,7 @@ class OSMDownloaderDock(QDockWidget):
 
         for idx, (label, color, slot) in enumerate(tool_defs):
             r, c = divmod(idx, 3)
-            b = _btn(label, color)
+            b    = _btn(label, color)
             if slot:
                 b.clicked.connect(slot)
             grid.addWidget(b, r, c)
@@ -304,13 +329,9 @@ class OSMDownloaderDock(QDockWidget):
         al.addWidget(copy_btn)
         tabs.addTab(activity_widget, "Activity")
 
-        # Settings tab
         tabs.addTab(self._build_settings_tab(), "Settings")
+        tabs.addTab(self._build_export_tab(),   "Export")
 
-        # Export tab
-        tabs.addTab(self._build_export_tab(), "Export")
-
-        # Access tab
         access_widget = QWidget()
         access_layout = QVBoxLayout(access_widget)
         access_layout.addWidget(QLabel("Overpass URL:"))
@@ -328,7 +349,7 @@ class OSMDownloaderDock(QDockWidget):
         layout = QVBoxLayout(widget)
         layout.setSpacing(6)
         frame_grp = QGroupBox("Frame / Paper")
-        fl = QVBoxLayout(frame_grp)
+        fl        = QVBoxLayout(frame_grp)
         orient_row = QHBoxLayout()
         orient_row.addWidget(QLabel("Orientation:"))
         self._orientation_combo = QComboBox()
@@ -403,6 +424,11 @@ class OSMDownloaderDock(QDockWidget):
         ]
 
     def _get_bbox(self):
+        """
+        Return the download bounding box, expanded by the padding spinner.
+        Always uses the raw Nominatim bbox (or canvas extent) — clipping to
+        the actual place boundary happens separately in _clip_layer_to_boundary().
+        """
         if self._current_bbox:
             south, west, north, east = self._current_bbox
         else:
@@ -411,25 +437,138 @@ class OSMDownloaderDock(QDockWidget):
         padding_pct = self._padding_spin.value() / 100.0
         if padding_pct > 0:
             lat_pad = (north - south) * padding_pct
-            lon_pad = (east - west) * padding_pct
-            south -= lat_pad; west -= lon_pad
-            north += lat_pad; east += lon_pad
+            lon_pad = (east  - west)  * padding_pct
+            south  -= lat_pad;  west  -= lon_pad
+            north  += lat_pad;  east  += lon_pad
         return (south, west, north, east)
 
     def _canvas_bbox(self):
-        canvas = self.iface.mapCanvas()
-        extent = canvas.extent()
+        canvas     = self.iface.mapCanvas()
+        extent     = canvas.extent()
         canvas_crs = canvas.mapSettings().destinationCrs()
-        wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+        wgs84      = QgsCoordinateReferenceSystem("EPSG:4326")
         if canvas_crs != wgs84:
             transform = QgsCoordinateTransform(canvas_crs, wgs84, QgsProject.instance())
-            extent = transform.transformBoundingBox(extent)
+            extent    = transform.transformBoundingBox(extent)
         return (extent.yMinimum(), extent.xMinimum(),
                 extent.yMaximum(), extent.xMaximum())
 
     def _set_worker_running(self, running):
         self._generate_btn.setEnabled(not running)
         self._export_btn.setEnabled(not running)
+
+    # ------------------------------------------------------------------
+    # Place boundary helpers
+    # ------------------------------------------------------------------
+
+    def _build_boundary_qgsgeom(self) -> QgsGeometry:
+        """
+        Convert the stored Nominatim GeoJSON boundary to a QgsGeometry,
+        optionally buffered by the padding percentage.
+
+        Returns None if no boundary is stored.
+        """
+        if not self._place_boundary:
+            return None
+
+        try:
+            geom = QgsGeometry.fromWkt(
+                QgsGeometry.fromEwkt("SRID=4326;" +
+                    self._geojson_to_wkt(self._place_boundary)).asWkt()
+            )
+        except Exception:
+            pass
+
+        # Use the simpler QgsGeometry.fromGeoJson approach (QGIS 3.x)
+        try:
+            import json as _json
+            geom = QgsGeometry.fromWkt(
+                QgsGeometry.fromGeoJson(
+                    _json.dumps(self._place_boundary)
+                ).asWkt()
+            )
+        except Exception:
+            geom = None
+
+        if geom is None or geom.isEmpty():
+            return None
+
+        # Apply padding as a geographic buffer in degrees
+        padding_pct = self._padding_spin.value() / 100.0
+        if padding_pct > 0:
+            bbox        = geom.boundingBox()
+            buf_deg     = max(bbox.width(), bbox.height()) * padding_pct
+            geom        = geom.buffer(buf_deg, 20)
+
+        return geom
+
+    def _add_boundary_layer(self, boundary_geom: QgsGeometry, place_name: str):
+        """Add the place boundary as a visible layer in the OSM Downloads group."""
+        layer = QgsVectorLayer("Polygon?crs=EPSG:4326", f"📍 {place_name}", "memory")
+        pr    = layer.dataProvider()
+        feat  = QgsFeature()
+        feat.setGeometry(boundary_geom)
+        pr.addFeature(feat)
+        layer.updateExtents()
+        symbol = QgsFillSymbol.createSimple({
+            "color":         "0,0,0,0",        # transparent fill
+            "outline_color": "#FF4400",         # vivid orange-red outline
+            "outline_width": "1.2",
+            "style":         "no",
+            "outline_style": "dash",            # dashed so it doesn't overpower
+        })
+        layer.setRenderer(QgsSingleSymbolRenderer(symbol))
+        QgsProject.instance().addMapLayer(layer, False)
+        self._layer_manager._get_or_create_group().addLayer(layer)
+        self._log(f"Place boundary layer added: '{place_name}'")
+
+    def _clip_layer_to_boundary(self, layer: QgsVectorLayer,
+                                 boundary_geom: QgsGeometry) -> QgsVectorLayer:
+        """
+        Clip a vector layer to the place boundary using QGIS Processing.
+        Returns the clipped layer (in-memory), or the original if clipping fails.
+        """
+        try:
+            import processing
+            import tempfile, json as _json
+
+            # Write boundary to a temp GeoJSON so Processing can use it as a mask
+            boundary_geojson = {
+                "type": "FeatureCollection",
+                "features": [{
+                    "type": "Feature",
+                    "geometry": _json.loads(boundary_geom.asJson()),
+                    "properties": {}
+                }]
+            }
+            tmp = tempfile.NamedTemporaryFile(
+                suffix=".geojson", mode="w", encoding="utf-8", delete=False
+            )
+            _json.dump(boundary_geojson, tmp)
+            tmp.close()
+            mask_layer = QgsVectorLayer(tmp.name, "mask", "ogr")
+
+            result       = processing.run("native:clip", {
+                "INPUT":   layer,
+                "OVERLAY": mask_layer,
+                "OUTPUT":  "memory:",
+            })
+            clipped = result["OUTPUT"]
+            clipped.setName(layer.name())
+
+            # Copy renderer (style) from original
+            clipped.setRenderer(layer.renderer().clone())
+
+            try:
+                os.unlink(tmp.name)
+            except Exception:
+                pass
+
+            return clipped
+
+        except Exception as e:
+            self._log(f"  Clip failed for '{layer.name()}': {e} — keeping full layer.")
+            return layer
 
     # ------------------------------------------------------------------
     # Slots
@@ -443,19 +582,25 @@ class OSMDownloaderDock(QDockWidget):
         self._log(f"Searching for '{place}'...")
         QApplication.processEvents()
         from .osm_api import OSMAPIHandler
-        api = OSMAPIHandler()
-        bbox = api.search_place(place)
-        if bbox:
-            self._current_bbox = bbox
-            south, west, north, east = bbox
-            self._log(f"Found: {place} — bbox [{south:.4f}, {west:.4f}, {north:.4f}, {east:.4f}]")
+        api    = OSMAPIHandler()
+        result = api.search_place_full(place)
+        if result:
+            self._current_bbox   = result['bbox']
+            self._place_boundary = result['geojson']   # store boundary polygon
+            south, west, north, east = self._current_bbox
+            self._log(f"Found: {result['display']}")
+            self._log(f"  bbox [{south:.4f}, {west:.4f}, {north:.4f}, {east:.4f}]")
+            if self._place_boundary:
+                self._log(f"  Place boundary polygon stored ({self._place_boundary['type']})")
+            else:
+                self._log("  No boundary polygon returned — will use bbox only.")
             try:
-                wgs84 = QgsCoordinateReferenceSystem("EPSG:4326")
+                wgs84      = QgsCoordinateReferenceSystem("EPSG:4326")
                 canvas_crs = self.iface.mapCanvas().mapSettings().destinationCrs()
-                rect = QgsRectangle(west, south, east, north)
+                rect       = QgsRectangle(west, south, east, north)
                 if canvas_crs != wgs84:
                     transform = QgsCoordinateTransform(wgs84, canvas_crs, QgsProject.instance())
-                    rect = transform.transformBoundingBox(rect)
+                    rect      = transform.transformBoundingBox(rect)
                 self.iface.mapCanvas().setExtent(rect)
                 self.iface.mapCanvas().refresh()
             except Exception as e:
@@ -464,9 +609,11 @@ class OSMDownloaderDock(QDockWidget):
             self._log(f"No results found for '{place}'")
 
     def _on_use_extent(self):
-        self._current_bbox = None
+        self._current_bbox   = None
+        self._place_boundary = None
         s, w, n, e = self._canvas_bbox()
         self._log(f"Using current extent: [{s:.4f}, {w:.4f}, {n:.4f}, {e:.4f}]")
+        self._log("  (No place boundary — clip to place is disabled for manual extents.)")
 
     def _on_generate_map(self):
         if self._worker and self._worker.isRunning():
@@ -481,8 +628,29 @@ class OSMDownloaderDock(QDockWidget):
         if s >= n or w >= e:
             self._log("Invalid bbox — please search a location or navigate the map.")
             return
+
+        # Show boundary layer before download starts so the user can see
+        # the frame immediately
+        if (self._show_boundary_chk.isChecked() and
+                self._place_boundary and
+                self._clip_to_boundary_chk.isChecked()):
+            try:
+                boundary_geom = self._build_boundary_qgsgeom()
+                if boundary_geom and not boundary_geom.isEmpty():
+                    place_name = self._location_edit.text().strip() or "Place"
+                    self._add_boundary_layer(boundary_geom, place_name)
+                    if self.iface:
+                        self.iface.mapCanvas().refresh()
+            except Exception as e:
+                self._log(f"Warning: Could not add boundary layer: {e}")
+
         self._log(f"Generating map — bbox [{s:.4f}, {w:.4f}, {n:.4f}, {e:.4f}]")
         self._log(f"  {len(selected)} feature type(s) selected.")
+        if self._clip_to_boundary_chk.isChecked() and self._place_boundary:
+            self._log("  Clip-to-place: ON — layers will be clipped to place boundary.")
+        else:
+            self._log("  Clip-to-place: OFF — full bbox download.")
+
         self._progress_bar.setValue(0)
         self._tabs.setCurrentIndex(0)
         self._worker = DownloadWorker(bbox, selected)
@@ -496,7 +664,26 @@ class OSMDownloaderDock(QDockWidget):
 
     def _on_layer_ready(self, geojson_str, config):
         layer_name = config.get("display", config.get("name", "OSM Layer"))
-        layer = self._layer_manager.load_geojson_as_layer(geojson_str, layer_name, config)
+        layer      = self._layer_manager.load_geojson_as_layer(geojson_str, layer_name, config)
+        if not layer:
+            return
+
+        # --- Clip to place boundary ---
+        if (self._clip_to_boundary_chk.isChecked() and self._place_boundary):
+            try:
+                boundary_geom = self._build_boundary_qgsgeom()
+                if boundary_geom and not boundary_geom.isEmpty():
+                    self._log(f"  Clipping '{layer_name}' to place boundary...")
+                    clipped = self._clip_layer_to_boundary(layer, boundary_geom)
+                    if clipped is not layer:
+                        # Replace the original layer with the clipped version
+                        QgsProject.instance().removeMapLayer(layer.id())
+                        QgsProject.instance().addMapLayer(clipped, False)
+                        self._layer_manager._get_or_create_group().addLayer(clipped)
+                        layer = clipped
+            except Exception as e:
+                self._log(f"  Warning: clipping failed for '{layer_name}': {e}")
+
         if layer and self._labels_chk.isChecked() and config.get("create_labels"):
             self._layer_manager.apply_labels(layer)
         if layer and self._zoom_vis_chk.isChecked():
@@ -571,8 +758,8 @@ class OSMDownloaderDock(QDockWidget):
             self._log(f"No layer found containing '{keyword}'.")
             return
         try:
-            result = processing.run("native:dissolve",
-                                    {"INPUT": target, "FIELD": [], "OUTPUT": "memory:"})
+            result   = processing.run("native:dissolve",
+                                      {"INPUT": target, "FIELD": [], "OUTPUT": "memory:"})
             dissolved = result["OUTPUT"]
             dissolved.setName(target.name() + " (dissolved)")
             style_config = {"style": {"color": "#4682B4", "fillColor": "#87CEEB",
@@ -587,7 +774,7 @@ class OSMDownloaderDock(QDockWidget):
             self._log(f"{action_name} failed: {e}")
 
     def _on_tiny_polys(self):
-        layers = self._layer_manager.get_valid_plugin_layers()
+        layers        = self._layer_manager.get_valid_plugin_layers()
         removed_total = 0
         for layer in layers:
             name = layer.name().lower()
@@ -630,7 +817,7 @@ class OSMDownloaderDock(QDockWidget):
             self._log(f"Grab 1 Layer: {len(selected)} checked — select exactly ONE or use Generate Map.")
 
     def _on_city_roads(self):
-        road_names = {"roads_major", "roads_residential", "roads_local"}
+        road_names    = {"roads_major", "roads_residential", "roads_local"}
         road_features = [f for f in self._all_features if f["name"] in road_names]
         if not road_features:
             self._log("Road feature configs not found.")
@@ -656,21 +843,24 @@ class OSMDownloaderDock(QDockWidget):
 
     def _on_set_frame(self):
         try:
-            bbox = self._get_bbox()
+            bbox        = self._get_bbox()
             orientation = self._orientation_combo.currentText()
-            frame_geom = FrameBuilder.create_frame_geometry(bbox, orientation)
+            frame_geom  = FrameBuilder.create_frame_geometry(bbox, orientation)
             if not frame_geom or frame_geom.isEmpty():
                 self._log("Could not create frame geometry.")
                 return
             frame_layer = QgsVectorLayer("Polygon?crs=EPSG:4326", "Frame", "memory")
-            pr = frame_layer.dataProvider()
+            pr   = frame_layer.dataProvider()
             feat = QgsFeature()
             feat.setGeometry(frame_geom)
             pr.addFeature(feat)
             frame_layer.updateExtents()
             symbol = QgsFillSymbol.createSimple({
-                "color": "0,0,0,0", "outline_color": "#FF0000",
-                "outline_width": "1.5", "style": "no", "outline_style": "solid",
+                "color":         "0,0,0,0",
+                "outline_color": "#FF0000",
+                "outline_width": "1.5",
+                "style":         "no",
+                "outline_style": "solid",
             })
             frame_layer.setRenderer(QgsSingleSymbolRenderer(symbol))
             QgsProject.instance().addMapLayer(frame_layer, False)
@@ -725,8 +915,8 @@ class OSMDownloaderDock(QDockWidget):
         if not layers:
             self._log("Warning: No plugin layers to export.")
             return
-        bbox = self._get_bbox()
-        paper = self._paper_combo.currentText()
+        bbox        = self._get_bbox()
+        paper       = self._paper_combo.currentText()
         orientation = self._export_orientation_combo.currentText()
         self._log(f"Exporting {len(layers)} layer(s) to SVG...")
         try:
